@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+# Keep result figures in version control; CSVs are ignored by default.
+results/*.csv
+
+# LaTeX build artifacts (keep the compiled garip.pdf and the .tex source)
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
+*.nav
+*.snm
+*.vrb

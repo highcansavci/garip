@@ -1,0 +1,7 @@
+# Already present in the cascade-venv311 environment; versions used for these results.
+jax>=0.10
+jaxlib>=0.10
+flax>=0.12        # neural policies for the Kuhn poker scale-up
+optax>=0.2.8
+matplotlib>=3.10
+pytest>=7.0
