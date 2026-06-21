@@ -1,31 +1,49 @@
-# GARIP — Generative Adversarial Reciprocal Iterative Play
+# GARIP — a Running-Average Moving Reference for Last-Iterate Self-Play
 
-A fully-reproducible **JAX** study of self-play in two-player zero-sum games, validated
-from 3×3 matrix games up to a deep-RL self-play loop on a (vendored) JaxMARL environment,
-with **faithful baselines** (MMD, R-NaD, optimistic MD, NFSP-style fictitious play). It
-culminates in **GARIP** — a *moving-reference* self-play method.
+A fully-reproducible **JAX** study of self-play in two-player zero-sum games, from 3×3
+matrix games and poker (Kuhn, Leduc) up to deep-RL self-play, with **faithful baselines**
+(MMD, R-NaD, optimistic MD, NFSP-style fictitious play). The method is **GARIP**: anchor
+each policy to its own **running average** (a Halpern step with a *moving* anchor) plus
+optimism — last-iterate Nash **without** annealing.
 
-> **Honest one-liner.** The idea that a **moving reference** (instead of a *fixed* magnet)
-> gives last-iterate Nash *without* shrinking the regularization to zero is **not new — it
-> is R-NaD's** (Perolat et al. 2022 → DeepNash), which uses a **periodic-snapshot** magnet.
-> GARIP is a *different instantiation* — it anchors to the **running average** (a Halpern
-> step with a moving anchor), derived from a cycle-consistency view. **At tuned settings it
-> ties R-NaD on performance**, but it is **consistently more hyperparameter-robust** — on
-> matrix games *and*, verified with a 10-seed sweep, in deep RL. The mechanism is concrete:
-> R-NaD's snapshot can go **stale** (long reset period `K` + strong KL → the policy is
-> anchored to an outdated reference), so it **collapses to an exploitable policy in ~32% of
-> hyperparameter configs**; GARIP's continuously-updated average **cannot go stale** and
-> collapses in **~7%**. *Equal peak performance, far fewer catastrophic-failure
-> hyperparameters* — that is GARIP's honest contribution. The repo also serves as a clean,
-> tested **benchmark** of the moving-reference family (naive → fictitious → MMD → R-NaD →
-> GARIP) across matrix games, poker, and deep RL.
+📄 **Paper:** [`paper/garip.pdf`](paper/garip.pdf) (LaTeX source + figures in [`paper/`](paper/)).
+
+### GARIP vs. CGSP — one method; read this first
+
+This repo began as **CGSP (CycleGAN Self-Play)**: view a zero-sum game as the *adversarial*
+half of a CycleGAN and add a **cycle-consistency loss** `‖F(G(σ)) − σ‖²` ("be a best
+response to your average") to break the cycling. That was the **motivation**. We then found
+the **literal cycle term underperforms**: in a zero-sum game the round-trip map `F∘G`
+*inherits the game's rotation* (in RPS, the best response to the best response to rock is
+scissors — it spins), so anchoring to it destabilizes — we tested it directly and it loses
+to the running average. **GARIP is the method that works:** it keeps the *moving-reference*
+idea but anchors to the **running average**, not the literal cycle. So throughout this repo:
+
+- **GARIP** = the method this project is about (running-average moving reference).
+- **CGSP / CycleGAN** = the **origin story and motivation**, plus an earlier literal-cycle
+  prototype that GARIP replaced. The CGSP sections lower down are the documented lineage,
+  **not** a competing method or a second set of headline results.
+
+> **Honest one-liner.** A **moving reference** (instead of a *fixed* magnet) giving
+> last-iterate Nash *without* annealing is **not new — it is R-NaD's** (Perolat et al. 2022
+> → DeepNash), which uses a **periodic-snapshot** magnet. GARIP is a *different
+> instantiation* — the **running average** (a Halpern step with a moving anchor). **At tuned
+> settings the two tie on performance**; over the full hyperparameter grid their aggregate
+> collapse rates are **statistically indistinguishable** (GARIP ~25%, R-NaD ~32%). GARIP's
+> edge is **where** each method's collapse boundary sits: collapse tracks the *peak* staleness
+> of the reference, and a running average's flat lag profile (peak = mean) is the
+> peak-minimizing causal reference, while a snapshot's sawtooth has peak = 2× its mean — so at
+> conventional settings (ρ=10⁻², K=200, matched mean lag) GARIP collapses in 0/40 seeds vs
+> R-NaD's 10/40. *Equal peak performance; collapse-free at the conventional rate for a
+> structural reason.* The repo is also a clean, tested **benchmark** of the moving-reference
+> family (naive → fictitious → MMD → R-NaD → GARIP) across matrix games, poker, and deep RL.
 
 ## Contribution and positioning (calibrated)
 
-GARIP grew out of **CGSP** (CycleGAN Self-Play, the precursor below): a zero-sum game is the
-*adversarial* half of a CycleGAN, and cycle-consistency `F(G(σ)) ≈ σ` ("be a best response
-to your average") is the convergence half. After implementing faithful baselines, here is
-the honest scorecard:
+GARIP is the **running-average moving reference**; its CycleGAN/cycle-consistency origin
+(the CGSP precursor) is *motivation, not mechanism* — the literal cycle term underperforms
+(see [GARIP vs. CGSP](#garip-vs-cgsp--one-method-read-this-first) above). After implementing
+faithful baselines, here is the honest scorecard:
 
 - **vs R-NaD** (Perolat et al. 2022) — the closest prior art. R-NaD already does
   moving-reference-without-annealing via a **periodic snapshot** magnet. GARIP's
@@ -61,7 +79,7 @@ x̄ ← running average of x                       # the self-consistent magnet
 (`y` symmetric with descent.) **`β` is constant — there is no annealing.** In the deep-RL setting
 the same idea becomes PPO self-play with a `λ·KL(π ‖ magnet)` term where the magnet is the running-
 average policy — versus MMD's *fixed* magnet and R-NaD's *periodic-snapshot* magnet (both
-implemented as baselines in [`ppo_selfplay.py`](cgsp/rl/ppo_selfplay.py)).
+implemented as baselines in [`ppo_selfplay.py`](garip/rl/ppo_selfplay.py)).
 
 **(1) Matrix games — last-iterate exploitability (10 seeds, 5000 steps, no annealing):**
 
@@ -161,7 +179,15 @@ row.)
 
 ![Leduc collapse](results/leduc_collapse.png)
 
-## The precursor: CGSP method
+## Appendix: lineage, scale-ups, and calibrations
+
+> Two kinds of material below: (i) the **CGSP precursor** — the literal cycle-consistency
+> formulation GARIP grew out of (its generators, cycle loss, and matrix-game numbers), kept
+> as the project's lineage; and (ii) **extended GARIP results** that didn't fit the paper's
+> main body — poker (Kuhn, Leduc) under the unified magnet framework (GARIP vs R-NaD vs MMD),
+> Deep-CFR calibration, and the Coin-Game methodology. Reminder: **GARIP is the method**; the
+> literal CGSP cycle term underperforms the running-average anchor, which is why the paper
+> treats the CycleGAN view as motivation, not mechanism.
 
 A zero-sum game has payoff matrix `A` (m×n). The row player picks `x ∈ Δ_m` (maximizer),
 the column player picks `y ∈ Δ_n` (minimizer); the value is `V = xᵀ A y`. We parameterize
@@ -201,7 +227,11 @@ a "potential" that breaks the conservative rotational field of the bilinear game
 gives a *strict* improvement on every game (annealing too far — τ < 0.07 — over-sharpens the
 softmax best responses and destabilizes the tiny rotational games, so 0.08 is the sweet spot).
 
-## Results
+### Precursor results (CGSP cycle-loss; the GARIP headline results are above)
+
+> These are the **CGSP precursor's** numbers under the literal cycle-consistency loss. The
+> project's headline results are the **GARIP** ones in the [GARIP section](#garip); the
+> tables here are the documented lineage.
 
 Primary metric: **exploitability** (NashConv / duality gap),
 `expl(x,y) = maxᵢ (A y)ᵢ − minⱼ (xᵀA)ⱼ ≥ 0`, which is `0` iff Nash and needs no LP solve.
@@ -232,11 +262,11 @@ straight in and stays.
 
 ![RPS simplex](results/rps_simplex.png)
 
-### Scale-up: neural CGSP on Kuhn poker
+### Scale-up: neural Kuhn poker (GARIP vs the magnet baselines)
 
 The same idea extends from matrix games to a **sequential imperfect-information game** with
 **neural policies**. Each player's behavioral strategy is a small Flax MLP over information-set
-features ([`cgsp/kuhn.py`](cgsp/kuhn.py), [`experiments/run_kuhn.py`](experiments/run_kuhn.py));
+features ([`garip/kuhn.py`](garip/kuhn.py), [`experiments/run_kuhn.py`](experiments/run_kuhn.py));
 we train through the differentiable game tree and measure **exact** exploitability (brute force
 over each player's 64 pure strategies). The cycle term uses one-shot-deviation smoothed
 best-response maps; the reported exploitability stays exact regardless.
@@ -263,7 +293,7 @@ moving magnet > periodic snapshot > fixed magnet.
 ### Larger scale-up: Leduc hold'em (GARIP vs R-NaD vs MMD vs CFR)
 
 Leduc is the standard step up from Kuhn — **288 information sets** (144/player), two betting
-rounds, a public card, and three actions ([`cgsp/leduc.py`](cgsp/leduc.py)). The tree is too large
+rounds, a public card, and three actions ([`garip/leduc.py`](garip/leduc.py)). The tree is too large
 for brute-force exploitability, so the engine includes an exact O(tree) recursive best response and
 a CFR solver; the engine is validated by CFR driving exploitability → 0 and the game value landing
 on the known **−0.0856**.
@@ -292,7 +322,7 @@ everywhere: **moving magnet > periodic snapshot > fixed magnet**.
 *Neural scale-up (separate).* A neural GARIP-style run ([`run_leduc.py`](experiments/run_leduc.py),
 counterfactual-BR target + averaged opponent) reaches 0.21 average-strategy exploitability over 10
 seeds — matching exact-BR fictitious play (0.21), with naive neural self-play diverging — confirming
-the approach survives function approximation ([`results/leduc_neural.png`](results/leduc_neural.png)).
+the approach survives function approximation.
 
 #### Negative result: a regret-matched cycle target does *not* close the gap to CFR
 
@@ -310,8 +340,8 @@ external sampling, reservoir replay buffers, and retraining from scratch each it
 ### Deep CFR on Leduc — the proper neural solver (and where it lands)
 
 So we built **full external-sampling Monte-Carlo Deep CFR** (Brown et al., ICML 2019) plus a
-**deterministic** variant ([`cgsp/deep_cfr.py`](cgsp/deep_cfr.py),
-[`experiments/run_deep_cfr.py`](experiments/run_deep_cfr.py)): advantage networks **retrained from
+**deterministic** variant (`run_deep_cfr.py`; the `deep_cfr.py` module is exploratory and not
+shipped in this release): advantage networks **retrained from
 scratch each iteration** on a reservoir of Monte-Carlo regret samples (so the strategy-generating
 network never lags), plus a policy network distilling the average strategy. Exploitability is exact.
 
@@ -345,21 +375,19 @@ machinery is real and correct here (it converges directionally, the pipeline is 
 on a small, tabulatable game the simpler CGSP-quantal (0.18) and plain tabular CFR (0.04) are both
 better per unit of compute — a fair, useful calibration of where CGSP stands.
 
-![Deep CFR on Leduc](results/deep_cfr_curves.png)
-
 ### Deep-RL stress test: methodology (Coin Game)
 
 The deep-RL result in the [GARIP section](#garip) above leaves exact-solver territory entirely: a
 real **deep-RL self-play** loop on a **JaxMARL** environment. The **Coin Game** — the canonical
 2-player self-play testbed — is *ported directly* into the repo
-([`cgsp/envs/coin_game.py`](cgsp/envs/coin_game.py), stripped of all JaxMARL/`chex` dependencies to
+([`garip/envs/coin_game.py`](garip/envs/coin_game.py), stripped of all JaxMARL/`chex` dependencies to
 avoid version coupling) and run **zero-sum** (`r0 = red − blue`). A shared PPO actor-critic plays
-both sides ([`cgsp/rl/ppo_selfplay.py`](cgsp/rl/ppo_selfplay.py)); the four methods form an
+both sides ([`garip/rl/ppo_selfplay.py`](garip/rl/ppo_selfplay.py)); the four methods form an
 **opponent × magnet** ablation (current/average opponent × none/fixed/moving magnet), so GARIP
 (average + moving) and MMD (current + fixed) differ in *exactly* the magnet.
 
 Since exact exploitability is infeasible, we use the standard deep proxy
-([`cgsp/rl/exploitability.py`](cgsp/rl/exploitability.py)): freeze the policy, train a fresh
+([`garip/rl/exploitability.py`](garip/rl/exploitability.py)): freeze the policy, train a fresh
 **best-response** PPO agent against it, and report its exploit return. The game is symmetric with
 value 0, so **lower (more negative) = a budget-matched adversary cannot beat the policy = more
 robust**. The 30/40 independent (method × seed) jobs run in parallel via `multiprocessing`
@@ -375,7 +403,7 @@ a short GARIP run sharply reduces exploitability.
 ## Layout
 
 ```
-cgsp/
+garip/
   games.py           # ZeroSumGame; rps(), matching_pennies(), random_zero_sum()
   strategies.py      # simplex utils + the G/F best-response generators
   exploitability.py  # exploitability / NashConv metric (LP-free)
@@ -383,9 +411,9 @@ cgsp/
   train.py           # jit + lax.scan rollouts; vmap over seeds
   kuhn.py            # Kuhn poker tree, differentiable EV, exact exploitability, cycle term
   leduc.py           # Leduc hold'em tree, EV, exact O(tree) best response, CFR, regret matching
-  deep_cfr.py        # external-sampling MC + deterministic Deep CFR (advantage/policy nets, reservoir)
-  envs/coin_game.py  # vendored JaxMARL Coin Game, self-contained, zero-sum option
-  rl/ppo_selfplay.py # shared actor-critic PPO self-play (naive/fictitious/CGSP) + cycle KL term
+  envs/coin_game.py  # vendored Coin Game, self-contained, zero-sum option
+  rl/ppo_selfplay.py # shared actor-critic PPO self-play (naive/fictitious/MMD/R-NaD/GARIP magnets)
+  rl/pgx_selfplay.py # turn-based PPO self-play for pgx board games (Connect Four/Othello/etc.)
   rl/exploitability.py # approximate exploitability via a trained best-response agent
 experiments/
   run_all.py         # all matrix methods × all games → results/*.csv + summary table
@@ -441,8 +469,8 @@ python experiments/run_leduc_collapse.py     # exact-metric Leduc
 
 ## Honesty / limitations
 
-- Scope: matrix games → Kuhn poker → Leduc hold'em, all self-contained in pure JAX. Deep-RL
-  environments (JaxMARL) remain future work.
+- Scope: matrix games → Kuhn/Leduc poker → deep-RL self-play (Coin Game + pgx board games),
+  all self-contained in pure JAX.
 - CGSP's fixed point is the τ-regularized (quantal-response) equilibrium. τ-annealing removes most
   of this bias when the cycle target is stable: on small games it reaches ~1e-3; on Leduc, once the
   target best-responds to the *average* opponent, annealing is stable and the averaged strategy
@@ -452,22 +480,26 @@ python experiments/run_leduc_collapse.py     # exact-metric Leduc
   is that CGSP is bounded/convergent where naive self-play cycles or diverges, and competitive with
   strong baselines — not uniformly state-of-the-art.
 
-## Toward a paper (GARIP) — honest scope
+## The paper (GARIP) — what it now contains
 
-After implementing faithful baselines and a rigorous (10-seed) robustness study, the defensible
-thesis is real and now holds in both regimes: **"a running-average moving reference matches R-NaD's
-peak performance while avoiding its stale-reference collapse — far fewer catastrophic-failure
-hyperparameters."** That is a solid ALA-workshop / short-paper contribution. To strengthen it:
+The thesis became a full paper ([`paper/garip.pdf`](paper/garip.pdf)): **"a running-average moving
+reference matches R-NaD's peak performance and is the better *default* for non-annealed self-play —
+collapse-free at the conventional rate for a structural reason."** What started as the to-do list is
+now done:
 
-1. **Theory (the key gap).** Formalize the stale-reference mechanism: a periodic snapshot held for
-   `K` steps under KL weight `λ` can anchor to an outdated policy (collapse when `λ·K` is large),
-   whereas a running average is always a valid mixture of recent policies. A bound relating collapse
-   to `λ·K` (R-NaD) vs the average's effective horizon (GARIP) would turn the empirics into a result.
-2. **Drop the *peak-performance* claim.** GARIP only **ties** R-NaD at tuned settings; the
-   contribution is **robustness / no-collapse**, not lower exploitability. Say so plainly.
-3. **Breadth.** Repeat the collapse study on a second deep env and on Leduc (neural) to show the
-   stale-reference failure of periodic snapshots is general, not Coin-Game-specific.
-4. **Metric rigor.** Standardized approximate exploitability (well-trained BR + CIs).
+1. **Theory.** The staleness mechanism is formalized: collapse tracks the reference's **peak** lag,
+   and the running average (flat lag profile, peak = mean) is the **peak-minimizing causal reference**
+   (Prop. 1), while a snapshot's sawtooth has peak = 2× its mean. Plus a **local last-iterate
+   convergence** theorem (the anchor crosses the stability boundary) and an honest negative: global
+   convergence fails at large anchor strength via *premature consensus*.
+2. **No peak-performance claim.** GARIP only **ties** R-NaD at each method's tuned best; the
+   contribution is the wider *default* basin. Stated plainly throughout.
+3. **Breadth.** The collapse study runs on matrix games, the Coin Game, **four pgx board games**
+   (Connect Four, Othello, Animal Shogi, Hex), and Leduc — the stale-reference failure is general.
+4. **Metric rigor.** 10-seed sweeps, Wilson CIs, best-response win-rate on turn-based games.
+
+It also reports the negative mechanism searches honestly: the literal **CycleGAN cycle term** and
+**adaptive-anticipation** references both underperform the running average — consistent with Prop. 1.
 
 ### Earlier milestones (the CGSP journey)
 
@@ -477,7 +509,7 @@ hyperparameters."** That is a solid ALA-workshop / short-paper contribution. To 
    history took CGSP past fictitious play (0.18 vs 0.21). ~~Regret-matching the cycle target~~ —
    **tried, negative result** (see above): online distillation of a regret-matched target fails
    (~1.0) because the lagging policy corrupts the regret dynamics. ~~Proper Deep CFR (external
-   sampling + reservoir + retrain-from-scratch)~~ — **built** ([`deep_cfr.py`](cgsp/deep_cfr.py)):
+   sampling + reservoir + retrain-from-scratch)~~ — **built** (`run_deep_cfr.py`):
    correct and convergent, but at this CPU-prototype scale it reaches only ~0.38 (deterministic) /
    ~0.94 (sampling) — the advantage-net approximation, not the policy distillation, is the floor.
    **Remaining:** reach the paper's ~0.05 with much larger nets + far more iterations/samples.
